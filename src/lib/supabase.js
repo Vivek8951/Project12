@@ -17,13 +17,21 @@ export const TABLES = {
 // Provider-related operations
 export const providerOperations = {
   async updateProviderStatus(providerId, isOnline) {
-    return await supabase
+    const { data, error } = await supabase
       .from(TABLES.PROVIDERS)
       .upsert({
-        id: providerId,
+        address: providerId,
         is_online: isOnline,
         last_seen: new Date().toISOString()
+      }, {
+        onConflict: 'address'
       });
+
+    if (error) {
+      console.error('Error updating provider status:', error);
+      throw error;
+    }
+    return data;
   },
 
   async getAllProviders() {

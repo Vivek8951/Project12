@@ -7,6 +7,13 @@ import { FileUpload } from './components/FileUpload';
 import type { Provider } from './types';
 import { supabase, TABLES } from './lib/supabase';
 
+export default function App() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+
   const handleFileUpload = async (fileData: { name: string; size: number; ipfsCid: string }) => {
     try {
       const { error } = await supabase
@@ -29,19 +36,28 @@ import { supabase, TABLES } from './lib/supabase';
       console.error('Error storing file metadata:', err);
     }
   };
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchProviders();
-    const providerSubscription = supabase
+    const subscription = supabase
       .channel('providers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.PROVIDERS }, fetchProviders)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'providers'
+      }, (payload) => {
+        setProviders(prevProviders => {
+          return prevProviders.map(provider => {
+            if (provider.address === payload.new.address) {
+              return { ...provider, isOnline: payload.new.is_online };
+            }
+            return provider;
+          });
+        });
+      })
       .subscribe();
 
     return () => {
-      providerSubscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -61,30 +77,6 @@ import { supabase, TABLES } from './lib/supabase';
       setIsLoading(false);
     }
   };
-
-  // Mock data for development while loading
-  const mockProviders: Provider[] = [
-  {
-    id: '1',
-    address: '0x1234567890abcdef1234567890abcdef12345678',
-    availableStorage: 1000,
-    usedStorage: 250,
-    isOnline: true,
-    pricePerGB: 10,
-    totalFiles: 156,
-    reputation: 4.8
-  },
-  {
-    id: '2',
-    address: '0xabcdef1234567890abcdef1234567890abcdef12',
-    availableStorage: 2000,
-    usedStorage: 800,
-    isOnline: true,
-    pricePerGB: 8,
-    totalFiles: 342,
-    reputation: 4.5
-  }
-];
 
   const handlePurchaseStorage = async (amount: number) => {
     if (!walletAddress) {
@@ -148,75 +140,49 @@ import { supabase, TABLES } from './lib/supabase';
               {isLoading ? (
                 <div className="col-span-3 text-center py-8">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="mt-4 text-gray-600">Loading providers...</p>
                 </div>
-              ) : providers.length === 0 ? (
-                <div className="col-span-3 text-center py-8">
-                  <p className="text-gray-600">No storage providers available</p>
+              ) : providers.length > 0 ? (
+                providers.map(provider => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    onSelect={() => setSelectedProvider(provider)}
+                  />
+                ))
+              ) : (
+                <div className="col-span-3 text-center py-8 text-gray-500">
+                  No storage providers available
                 </div>
-              ) : providers.map(provider => (
-                <ProviderCard
-                  key={provider.id}
-                  provider={provider}
-                  onSelect={setSelectedProvider}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Network Statistics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-blue-600">Total Storage</h3>
-                <p className="text-2xl font-bold text-blue-900">3,000 GB</p>
-              </div>
-              <div className="bg-green-50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-green-600">Active Providers</h3>
-                <p className="text-2xl font-bold text-green-900">{providers.filter(p => p.isOnline).length}</p>
-              </div>
-              <div className="bg-purple-50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-purple-600">Total Files</h3>
-                <p className="text-2xl font-bold text-purple-900">{providers.reduce((acc, p) => acc + p.totalFiles, 0)}</p>
-              </div>
+              )}
             </div>
           </div>
         </main>
       ) : (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-4">Connect Your Wallet</h2>
-          <p className="text-gray-600 mb-8">Please connect your wallet to access storage providers and manage your files.</p>
+          <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+            Connect your wallet to get started
+          </h2>
+          <p className="text-gray-500">
+            You need to connect your wallet to upload files and purchase storage
+          </p>
         </div>
       )}
 
-      {showUploadModal && walletAddress && selectedProvider && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-semibold mb-4">Upload File</h2>
-            <FileUpload
-              providerId={selectedProvider.id}
-              clientAddress={walletAddress}
-              onUploadComplete={handleFileUpload}
-            />
-            <button
-              onClick={() => setShowUploadModal(false)}
-              className="mt-4 w-full bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {selectedProvider && walletAddress && (
+      {selectedProvider && (
         <StoragePurchaseModal
           provider={selectedProvider}
           onClose={() => setSelectedProvider(null)}
           onPurchase={handlePurchaseStorage}
         />
       )}
+
+      {showUploadModal && selectedProvider && (
+        <FileUpload
+          onClose={() => setShowUploadModal(false)}
+          onUpload={handleFileUpload}
+          provider={selectedProvider}
+        />
+      )}
     </div>
   );
 }
-
-export default App;
