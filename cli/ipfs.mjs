@@ -75,21 +75,27 @@ export async function installIpfs() {
           return;
         }
 
-        stream.on('error', (error) => {
-          fileStream.destroy();
-          reject(error);
-        });
+        const downloadStream = stream.getReader();
+        const writer = fileStream.getWriter();
 
-        fileStream.on('error', (error) => {
-          stream.destroy();
-          reject(error);
-        });
+        async function pump() {
+          try {
+            while (true) {
+              const { done, value } = await downloadStream.read();
+              if (done) break;
+              await writer.write(value);
+            }
+            await writer.close();
+            resolve();
+          } catch (error) {
+            writer.abort(error);
+            reject(error);
+          } finally {
+            downloadStream.releaseLock();
+          }
+        }
 
-        fileStream.on('finish', () => {
-          resolve();
-        });
-
-        stream.pipe(fileStream);
+        pump().catch(reject);
       });
     } catch (error) {
       throw new Error(`Failed to download IPFS: ${error.message}`);
