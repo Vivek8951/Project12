@@ -254,26 +254,19 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
               .eq('address', address);
 
             if (error) {
-              const currentTime = Date.now();
-              if (currentTime - lastLogTime >= 3600000) { // Log errors only once per hour
-                console.error(chalk.yellow('Failed to update provider status:', error.message));
-                lastLogTime = currentTime;
-              }
+              console.error(chalk.yellow('Failed to update provider status:', error.message));
             } else {
+              // Log status update every minute instead of every hour
               const currentTime = Date.now();
-              if (currentTime - lastLogTime >= 3600000) { // Log status only once per hour
+              if (currentTime - lastLogTime >= 60000) {
                 console.log(chalk.green(`Provider status updated - Online: ${isIpfsOnline}, Storage Used: ${usedStorage.toFixed(2)}GB`));
                 lastLogTime = currentTime;
               }
             }
           } catch (error) {
-            const currentTime = Date.now();
-            if (currentTime - lastLogTime >= 3600000) { // Log errors only once per hour
-              console.error(chalk.yellow('Failed to update provider status:', error.message));
-              lastLogTime = currentTime;
-            }
+            console.error(chalk.yellow('Failed to update provider status:', error.message));
           }
-        }, 1000); // Update every second for more responsive status changes
+        }, 5000); // Update every 5 seconds for more responsive status changes
         
         process.stdin.resume();
         

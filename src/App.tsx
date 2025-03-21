@@ -56,44 +56,35 @@ export default function App() {
         table: 'providers'
       }, (payload) => {
         setProviders(prevProviders => {
-          const currentTime = Date.now();
-          const hourInMs = 3600000; // 1 hour in milliseconds
-          let shouldLog = false;
-          
-          // Only log if more than an hour has passed since the last log
-          if (currentTime - lastLogTime >= hourInMs) {
-            shouldLog = true;
-            setLastLogTime(currentTime);
-          }
-
-          const updatedProviders = prevProviders.map(provider => {
+          return prevProviders.map(provider => {
             if (provider.address === payload.new.address) {
-              // Log only once per hour for this provider
-              if (shouldLog) {
-                const storageUsed = parseFloat(payload.new.used_storage) || 0;
-                console.log(`Provider status updated - Online: ${payload.new.is_online}, Storage Used: ${storageUsed}GB`);
-              }
-              
+              // Update provider with latest status
               return { 
                 ...provider, 
                 isOnline: payload.new.is_online,
                 availableStorage: parseFloat(payload.new.available_storage) || 0,
                 usedStorage: parseFloat(payload.new.used_storage) || 0,
-                lastSeen: payload.new.last_seen
+                lastSeen: payload.new.last_seen,
+                totalFiles: parseInt(payload.new.total_files) || 0,
+                pricePerGB: parseFloat(payload.new.price_per_gb) || 0
               };
             }
             return provider;
           });
-
-          return updatedProviders;
         });
       })
       .subscribe();
 
+    // Set up periodic provider refresh
+    const refreshInterval = setInterval(() => {
+      fetchProviders();
+    }, 30000); // Refresh every 30 seconds
+
     return () => {
       subscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
-  }, [lastLogTime]);
+  }, []);
 
   const fetchProviders = async () => {
     try {
