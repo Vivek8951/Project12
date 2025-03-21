@@ -64,34 +64,36 @@ export async function installIpfs() {
     if (!response.ok) {
       throw new Error(`Failed to download IPFS: ${response.statusText}`);
     }
-    const totalSize = parseInt(response.headers.get('content-length'), 10);
-    let downloadedSize = 0;
 
     const fileStream = createWriteStream(path.join(tempDir, 'ipfs.tar.gz'));
-    await new Promise((resolve, reject) => {
-      response.body.pipe(fileStream);
-      
-      response.body.on('data', (chunk) => {
-        downloadedSize += chunk.length;
-        const progress = ((downloadedSize / totalSize) * 100).toFixed(2);
-        spinner.text = `Downloading IPFS... ${progress}%`;
+    
+    try {
+      await new Promise((resolve, reject) => {
+        const stream = response.body;
+        if (!stream) {
+          reject(new Error('No response body stream available'));
+          return;
+        }
+
+        stream.on('error', (error) => {
+          fileStream.destroy();
+          reject(error);
+        });
+
+        fileStream.on('error', (error) => {
+          stream.destroy();
+          reject(error);
+        });
+
+        fileStream.on('finish', () => {
+          resolve();
+        });
+
+        stream.pipe(fileStream);
       });
-      
-      fileStream.on('finish', () => {
-        fileStream.close();
-        resolve();
-      });
-      
-      fileStream.on('error', (error) => {
-        fileStream.close();
-        reject(error);
-      });
-      
-      response.body.on('error', (error) => {
-        fileStream.close();
-        reject(error);
-      });
-    });
+    } catch (error) {
+      throw new Error(`Failed to download IPFS: ${error.message}`);
+    }
 
     // Extract IPFS
     spinner.text = 'Extracting IPFS...';

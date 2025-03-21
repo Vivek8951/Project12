@@ -54,8 +54,12 @@ export class StorageContract {
       }
 
       // Approve AAI token spending
-git add      const approveTx = await aaiToken.approve(STORAGE_CONTRACT_ADDRESS, totalCost);
-      await approveTx.wait();
+      const approveTx = await aaiToken.approve(STORAGE_CONTRACT_ADDRESS, totalCost);
+      const approveReceipt = await approveTx.wait();
+      
+      if (!approveReceipt.status) {
+        throw new Error('Token approval failed');
+      }
 
       // Purchase storage
       const tx = await this.contract.purchaseStorage(
