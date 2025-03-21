@@ -61,21 +61,42 @@ export async function installIpfs() {
     // Download IPFS
     spinner.text = 'Downloading IPFS...';
     const response = await fetch(downloadUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download IPFS: ${response.statusText}`);
+    }
     const totalSize = parseInt(response.headers.get('content-length'), 10);
     let downloadedSize = 0;
 
     const fileStream = createWriteStream(path.join(tempDir, 'ipfs.tar.gz'));
-    
-    await new Promise((resolve, reject) => {
-      response.body.pipe(fileStream);
-      response.body.on('data', (chunk) => {
+    const downloadStream = new Promise((resolve, reject) => {
+      const stream = response.body;
+      if (!stream) {
+        reject(new Error('No response body stream available'));
+        return;
+      }
+      
+      stream.on('data', (chunk) => {
         downloadedSize += chunk.length;
         const progress = ((downloadedSize / totalSize) * 100).toFixed(2);
         spinner.text = `Downloading IPFS... ${progress}%`;
       });
-      fileStream.on('finish', resolve);
-      fileStream.on('error', reject);
+      
+      stream.on('error', (error) => {
+        reject(error);
+      });
+      
+      stream.pipe(fileStream);
+      
+      fileStream.on('finish', () => {
+        resolve();
+      });
+      
+      fileStream.on('error', (error) => {
+        reject(error);
+      });
     });
+
+    await downloadStream;
 
     // Extract IPFS
     spinner.text = 'Extracting IPFS...';
