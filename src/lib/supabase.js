@@ -17,15 +17,31 @@ export const TABLES = {
 // Provider-related operations
 export const providerOperations = {
   async updateProviderStatus(providerId, isOnline) {
+    const { data: existingProvider } = await supabase
+      .from(TABLES.PROVIDERS)
+      .select('*')
+      .eq('address', providerId)
+      .single();
+
+    if (!existingProvider) {
+      throw new Error('Provider not found');
+    }
+
     const { data, error } = await supabase
       .from(TABLES.PROVIDERS)
       .upsert({
         address: providerId,
         is_online: isOnline,
-        last_seen: new Date().toISOString()
+        last_seen: new Date().toISOString(),
+        available_storage: existingProvider.available_storage,
+        used_storage: existingProvider.used_storage,
+        price_per_gb: existingProvider.price_per_gb,
+        total_files: existingProvider.total_files,
+        reputation: existingProvider.reputation
       }, {
         onConflict: 'address'
       });
+
 
     if (error) {
       console.error('Error updating provider status:', error);

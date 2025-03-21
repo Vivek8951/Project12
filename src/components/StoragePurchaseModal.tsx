@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Coins, X } from 'lucide-react';
-import type { Provider } from '../types';
+import { X, Coins } from 'lucide-react';
+import { ethers } from 'ethers';
+import { StorageContract } from '../lib/contracts';
+import { Provider } from '../types';
 
 interface StoragePurchaseModalProps {
   provider: Provider;
@@ -22,14 +24,30 @@ export const StoragePurchaseModal: React.FC<StoragePurchaseModalProps> = ({ prov
       return;
     }
 
+    if (!window.ethereum) {
+      setError('Please install MetaMask to purchase storage.');
+      return;
+    }
+
     try {
       setError(null);
       setIsLoading(true);
+
+      const web3Provider = new ethers.BrowserProvider(window.ethereum);
+      const storageContract = new StorageContract(web3Provider);
+      
+      // Purchase storage through smart contract
+      const receipt = await storageContract.purchaseStorage(
+        provider.address,
+        storageAmount,
+        provider.pricePerGB
+      );
+
       await onPurchase(storageAmount);
       onClose();
     } catch (error) {
       console.error('Purchase failed:', error);
-      setError('Failed to complete purchase. Please try again.');
+      setError(error instanceof Error ? error.message : 'Failed to complete purchase. Please try again.');
     } finally {
       setIsLoading(false);
     }

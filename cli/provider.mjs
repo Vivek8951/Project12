@@ -47,7 +47,8 @@ const loadDependencies = async () => {
             is_online: true,
             price_per_gb: pricePerGb,
             total_files: 0,
-            reputation: 0
+            reputation: 0,
+            last_seen: new Date().toISOString()
           }
         ]);
       if (error) throw error;
@@ -102,7 +103,7 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
           process.exit(1);
         }
 
-        // Check if provider already exists and get stored private key
+        // Get provider information
         const answers = await inquirer.prompt([
           {
             type: 'password',
@@ -175,7 +176,7 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
         // Set private key and storage directory
         privateKey = answers.privateKey;
         const storageDir = answers.storageDir === 'custom' ? answers.customStorageDir : answers.storageDir;
-        const storageSize = answers.storageSize * 1024 * 1024 * 1024; // Convert GB to bytes
+        const storageSize = answers.storageSize;
 
         // Initialize provider
         const address = validatePrivateKey(privateKey);
@@ -188,20 +189,24 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
         // Store provider data if new
         if (!providerData) {
           try {
-            const { data, error } = await supabase
-              .from('providers')
-              .insert([
-                {
-                  address: address,
-                  available_storage: storageSize,
-                  used_storage: 0,
-                  is_online: true,
-                  price_per_gb: 1,
-                  total_files: 0,
-                  reputation: 0
-                }
-              ]);
+            // Ensure storageSize is a valid number
+            if (isNaN(storageSize) || storageSize <= 0) {
+              throw new Error('Invalid storage size');
+            }
             
+            const { data, error } = await supabase
+              .from(TABLES.PROVIDERS)
+              .insert([{
+                address: address,
+                available_storage: storageSize,
+                used_storage: 0,
+                is_online: true,
+                price_per_gb: 1.00,
+                total_files: 0,
+                reputation: 0,
+                last_seen: new Date().toISOString()
+              }]);
+              
             if (error) throw error;
           } catch (error) {
             throw new Error(`Failed to setup provider: ${error.message}`);
@@ -218,13 +223,57 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
         console.log(chalk.green('Storage provider is now online and ready to accept files!'));
         
         // Keep the process running and update status periodically
-        setInterval(async () => {
+        let lastLogTime = 0;
+        let updateStatusInterval = setInterval(async () => {
           try {
-            await providerOperations.updateProviderStatus(address, true);
+            // Check IPFS daemon status
+            let isIpfsOnline = false;
+            try {
+              await execAsync('ipfs swarm peers');
+              isIpfsOnline = true;
+            } catch {}
+
+            // Get IPFS repo stats for storage metrics
+            let usedStorage = 0;
+            try {
+              const { stdout } = await execAsync('ipfs repo stat -s');
+              usedStorage = parseFloat(stdout) / (1024 * 1024 * 1024); // Convert to GB
+            } catch {}
+
+            // Update provider status more frequently with reliable metrics
+            const { data, error } = await supabase
+              .from('providers')
+              .update({
+                is_online: isIpfsOnline,
+                last_seen: new Date().toISOString(),
+                available_storage: storageSize,
+                used_storage: usedStorage || 0,
+                price_per_gb: 1.00,
+                total_files: 0
+              })
+              .eq('address', address);
+
+            if (error) {
+              const currentTime = Date.now();
+              if (currentTime - lastLogTime >= 3600000) { // Log errors only once per hour
+                console.error(chalk.yellow('Failed to update provider status:', error.message));
+                lastLogTime = currentTime;
+              }
+            } else {
+              const currentTime = Date.now();
+              if (currentTime - lastLogTime >= 3600000) { // Log status only once per hour
+                console.log(chalk.green(`Provider status updated - Online: ${isIpfsOnline}, Storage Used: ${usedStorage.toFixed(2)}GB`));
+                lastLogTime = currentTime;
+              }
+            }
           } catch (error) {
-            console.error(chalk.yellow('Failed to update provider status:', error.message));
+            const currentTime = Date.now();
+            if (currentTime - lastLogTime >= 3600000) { // Log errors only once per hour
+              console.error(chalk.yellow('Failed to update provider status:', error.message));
+              lastLogTime = currentTime;
+            }
           }
-        }, 60000); // Update every minute
+        }, 1000); // Update every second for more responsive status changes
         
         process.stdin.resume();
         
@@ -232,7 +281,14 @@ loadDependencies().then(({ inquirer, providerOperations, miningOperations }) => 
         process.on('SIGINT', async () => {
           console.log(chalk.yellow('\nShutting down provider...'));
           try {
-            await providerOperations.updateProviderStatus(address, false);
+            clearInterval(updateStatusInterval);
+            await supabase
+              .from('providers')
+              .update({
+                is_online: false,
+                last_seen: new Date().toISOString()
+              })
+              .eq('address', address);
           } catch (error) {
             console.error(chalk.red('Failed to update provider status:', error.message));
           }

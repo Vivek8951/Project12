@@ -21,11 +21,13 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, onDisco
     checkWalletConnection();
     if (window.ethereum) {
       window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', () => window.location.reload());
       window.ethereum.on('disconnect', disconnectWallet);
     }
     return () => {
       if (window.ethereum) {
         window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', () => window.location.reload());
         window.ethereum.removeListener('disconnect', disconnectWallet);
       }
     };

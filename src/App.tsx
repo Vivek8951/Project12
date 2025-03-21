@@ -16,6 +16,10 @@ export default function App() {
 
   const handleFileUpload = async (fileData: { name: string; size: number; ipfsCid: string }) => {
     try {
+      if (!selectedProvider || !walletAddress) {
+        throw new Error('Provider or wallet not connected');
+      }
+
       const { error } = await supabase
         .from(TABLES.STORED_FILES)
         .insert([
@@ -23,7 +27,7 @@ export default function App() {
             name: fileData.name,
             size: fileData.size,
             ipfs_cid: fileData.ipfsCid,
-            provider_id: selectedProvider?.id,
+            provider_id: selectedProvider.id,
             client_address: walletAddress,
             uploaded_at: new Date().toISOString()
           }
@@ -37,7 +41,13 @@ export default function App() {
     }
   };
 
+  const [lastLogTime, setLastLogTime] = useState<number>(0);
+
   useEffect(() => {
+    // Fetch initial providers
+    fetchProviders();
+
+    // Subscribe to real-time updates
     const subscription = supabase
       .channel('providers')
       .on('postgres_changes', {
@@ -46,12 +56,36 @@ export default function App() {
         table: 'providers'
       }, (payload) => {
         setProviders(prevProviders => {
-          return prevProviders.map(provider => {
+          const currentTime = Date.now();
+          const hourInMs = 3600000; // 1 hour in milliseconds
+          let shouldLog = false;
+          
+          // Only log if more than an hour has passed since the last log
+          if (currentTime - lastLogTime >= hourInMs) {
+            shouldLog = true;
+            setLastLogTime(currentTime);
+          }
+
+          const updatedProviders = prevProviders.map(provider => {
             if (provider.address === payload.new.address) {
-              return { ...provider, isOnline: payload.new.is_online };
+              // Log only once per hour for this provider
+              if (shouldLog) {
+                const storageUsed = parseFloat(payload.new.used_storage) || 0;
+                console.log(`Provider status updated - Online: ${payload.new.is_online}, Storage Used: ${storageUsed}GB`);
+              }
+              
+              return { 
+                ...provider, 
+                isOnline: payload.new.is_online,
+                availableStorage: parseFloat(payload.new.available_storage) || 0,
+                usedStorage: parseFloat(payload.new.used_storage) || 0,
+                lastSeen: payload.new.last_seen
+              };
             }
             return provider;
           });
+
+          return updatedProviders;
         });
       })
       .subscribe();
@@ -59,7 +93,7 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [lastLogTime]);
 
   const fetchProviders = async () => {
     try {
@@ -70,7 +104,21 @@ export default function App() {
         .order('last_seen', { ascending: false });
       
       if (error) throw error;
-      setProviders(data || []);
+
+      const currentTime = new Date().getTime();
+      const mappedProviders = (data || []).map(provider => ({
+        id: provider.id,
+        address: provider.address,
+        availableStorage: parseFloat(provider.available_storage),
+        usedStorage: parseFloat(provider.used_storage),
+        isOnline: provider.is_online,
+        pricePerGB: parseFloat(provider.price_per_gb),
+        totalFiles: provider.total_files,
+        reputation: provider.reputation,
+        lastSeen: provider.last_seen
+      }));
+      
+      setProviders(mappedProviders);
     } catch (error) {
       console.error('Error fetching providers:', error);
     } finally {
